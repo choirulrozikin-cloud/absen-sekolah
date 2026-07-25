@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Absen Wajah &amp; GPS</title>
+<script defer src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+<style>
+  :root{
+    --bg: #f5f6f8;
+    --panel: #ffffff;
+    --ink: #1c2331;
+    --ink-soft: #5b6472;
+    --line: #e4e7ec;
+    --primary: #2a4d69;
+    --primary-dark: #1c3549;
+    --accent: #ff8a3d;
+    --good: #1f9d55;
+    --good-bg: #e6f7ec;
+    --warn: #c9820a;
+    --warn-bg: #fdf1de;
+    --bad: #d13b3b;
+    --bad-bg: #fbe7e7;
+    --radius: 10px;
+    --shadow: 0 1px 2px rgba(20,25,35,.06), 0 6px 20px rgba(20,25,35,.05);
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background:linear-gradient(180deg,#1c3549 0%,#f5f6f8 320px);
+    min-height:100vh;color:var(--ink);-webkit-font-smoothing:antialiased;
+  }
+  button{font-family:inherit;}
+  .hidden{display:none !important;}
+  ::-webkit-scrollbar{width:8px;height:8px;}
+  ::-webkit-scrollbar-thumb{background:#c7ccd4;border-radius:8px;}
+
+  .btn{
+    display:inline-flex;align-items:center;justify-content:center;gap:6px;
+    padding:10px 16px;border-radius:8px;border:1px solid transparent;
+    font-size:14px;font-weight:600;cursor:pointer;transition:.15s ease;
+  }
+  .btn-primary{background:var(--primary);color:#fff;}
+  .btn-primary:hover{background:var(--primary-dark);}
+  .btn-accent{background:var(--accent);color:#1c1200;}
+  .btn-accent:hover{filter:brightness(0.95);}
+  .btn-outline{background:#fff;border-color:var(--line);color:var(--ink);}
+  .btn-outline:hover{border-color:var(--primary);color:var(--primary);}
+  .btn:disabled{opacity:.5;cursor:not-allowed;}
+  .btn-block{width:100%;}
+  .btn-sm{padding:6px 10px;font-size:12.5px;border-radius:6px;}
+
+  label{font-size:12.5px;font-weight:600;color:var(--ink-soft);display:block;margin-bottom:6px;}
+  input[type=text]{
+    width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:8px;
+    font-size:14px;background:#fff;color:var(--ink);
+  }
+  input:focus{outline:2px solid var(--primary);outline-offset:1px;}
+  .field{margin-bottom:16px;}
+
+  .card{background:var(--panel);border-radius:var(--radius);box-shadow:var(--shadow);border:1px solid var(--line);}
+
+  .badge{display:inline-block;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:700;white-space:nowrap;}
+  .badge-good{background:var(--good-bg);color:var(--good);}
+  .badge-bad{background:var(--bad-bg);color:var(--bad);}
+  .badge-neutral{background:#eef0f3;color:var(--ink-soft);}
+
+  #toast-wrap{position:fixed;top:18px;right:18px;left:18px;z-index:9999;display:flex;flex-direction:column;gap:8px;align-items:flex-end;}
+  .toast{
+    min-width:200px;max-width:340px;padding:12px 14px;border-radius:8px;
+    box-shadow:var(--shadow);font-size:13.5px;font-weight:600;
+    animation:slideIn .18s ease;
+  }
+  .toast-ok{background:var(--good);color:#fff;}
+  .toast-err{background:var(--bad);color:#fff;}
+  @keyframes slideIn{from{transform:translateX(24px);opacity:0;}to{transform:translateX(0);opacity:1;}}
+
+  .spinner{
+    width:18px;height:18px;border-radius:50%;
+    border:2.5px solid rgba(255,255,255,.4);border-top-color:#fff;
+    animation:spin .7s linear infinite;display:inline-block;
+  }
+  .spinner-dark{border:2.5px solid rgba(42,77,105,.25);border-top-color:var(--primary);}
+  @keyframes spin{to{transform:rotate(360deg);}}
+
+  .wrap{max-width:440px;margin:0 auto;padding:30px 18px 60px;}
+  .header{color:#fff;text-align:center;margin-bottom:22px;}
+  .header h1{font-size:19px;margin:0 0 4px;}
+  .header p{font-size:12.5px;opacity:.75;margin:0;}
+
+  .card-p{padding:22px;}
+  #login-nik{text-align:center;font-size:20px;letter-spacing:2px;}
+  .result-box{margin-top:16px;padding:16px;border-radius:10px;font-size:14px;font-weight:600;text-align:center;display:none;}
+  .result-ok{background:var(--good-bg);color:var(--good);}
+  .result-bad{background:var(--bad-bg);color:var(--bad);}
+
+  .cam-box{
+    position:relative;border-radius:12px;overflow:hidden;background:#0f1720;
+    aspect-ratio:4/3;display:flex;align-items:center;justify-content:center;
+  }
+  #video{width:100%;height:100%;object-fit:cover;transform:scaleX(-1);}
+  #overlayCanvas{position:absolute;inset:0;width:100%;height:100%;}
+  .cam-loading{color:rgba(255,255,255,.6);font-size:13px;}
+
+  .status-list{margin-top:16px;display:flex;flex-direction:column;gap:8px;}
+  .status-row{
+    display:flex;justify-content:space-between;align-items:center;
+    padding:10px 12px;border-radius:8px;background:#f8f9fb;font-size:13px;
+  }
+  .status-row .lbl{color:var(--ink-soft);font-weight:600;}
+
+  .identity{display:flex;align-items:center;gap:12px;margin-bottom:16px;}
+  .identity img{width:46px;height:46px;border-radius:10px;object-fit:cover;background:#eef0f3;}
+  .identity .nm{font-weight:700;font-size:15px;}
+  .identity .jb{font-size:12.5px;color:var(--ink-soft);}
+
+  .actions{display:flex;gap:10px;margin-top:18px;}
+  .actions .btn{flex:1;padding:14px;font-size:14.5px;}
+
+  .footnote{text-align:center;font-size:11.5px;color:var(--ink-soft);margin-top:16px;}
+</style>
+</head>
+<body>
+  <div id="toast-wrap"></div>
+  <div class="wrap">
+    <div class="header">
+      <h1>Absen Wajah &amp; GPS</h1>
+      <p>Guru &amp; Karyawan</p>
+    </div>
+
+    <!-- ============ LOGIN ============ -->
+    <div class="card card-p" id="panel-login">
+      <div class="field">
+        <label>Masukkan NIK</label>
+        <input type="text" id="login-nik" placeholder="••••••••" inputmode="numeric">
+      </div>
+      <button class="btn btn-primary btn-block" id="btn-login" onclick="login()">Masuk</button>
+      <div class="result-box" id="login-msg"></div>
+    </div>
+
+    <!-- ============ ABSEN ============ -->
+    <div class="hidden" id="panel-absen">
+      <div class="card card-p" style="margin-bottom:14px;">
+        <div class="identity">
+          <img id="id-foto" src="">
+          <div>
+            <div class="nm" id="id-nama">-</div>
+            <div class="jb" id="id-jabatan">-</div>
+          </div>
+        </div>
+
+        <div class="cam-box">
+          <video id="video" autoplay muted playsinline></video>
+          <canvas id="overlayCanvas"></canvas>
+          <div class="cam-loading" id="cam-loading">Mengaktifkan kamera & model wajah…</div>
+        </div>
+
+        <div class="status-list">
+          <div class="status-row"><span class="lbl">Deteksi Wajah</span><span id="st-wajah" class="badge badge-neutral">Menunggu…</span></div>
+          <div class="status-row"><span class="lbl">Lokasi GPS</span><span id="st-gps" class="badge badge-neutral">Menunggu…</span></div>
+        </div>
+
+        <div class="actions">
+          <button class="btn btn-primary" id="btn-datang" disabled onclick="submitAbsen('datang')">Absen Datang</button>
+          <button class="btn btn-accent" id="btn-pulang" disabled onclick="submitAbsen('pulang')">Absen Pulang</button>
+        </div>
+
+        <div class="result-box" id="absen-result"></div>
+      </div>
+      <button class="btn btn-outline btn-block" onclick="logout()">Keluar / Ganti NIK</button>
+      <div class="footnote">Persentase kemiripan wajah adalah estimasi otomatis. Pastikan pencahayaan cukup saat mengambil foto.<br>Jika kamera/GPS tidak berfungsi di HP, buka link ini langsung di aplikasi <b>Chrome</b>/<b>Safari</b> — bukan lewat browser dalam WhatsApp/Instagram/Telegram — dan pastikan izin Kamera &amp; Lokasi untuk browser tersebut sudah diaktifkan di Pengaturan HP.</div>
+    </div>
+  </div>
+
+<script>
+  /* =====================================================================
+   * GANTI BARIS INI dengan URL deployment Web App Apps Script Anda
+   * (yang diakhiri /exec). Ambil dari: Deploy > Manage deployments > Web app URL.
+   * ===================================================================== */
+  var API_URL = 'PASTE_URL_WEB_APP_APPS_SCRIPT_DI_SINI';
+
+  var MODEL_URL = 'https://justadudewhohacks.github.io/face-api.js/models';
+  var karyawan = null;
+  var settings = null;
+  var referenceDescriptor = null;
+  var latestDescriptor = null;
+  var latestSimilarity = 0;
+  var latestFotoBase64 = null;
+  var faceOk = false;
+  var gpsOk = false;
+  var latestLat = null, latestLng = null;
+  var detectTimer = null;
+  var watchId = null;
+  var modelsReady = false;
+
+  function toast(msg, ok) {
+    var wrap = document.getElementById('toast-wrap');
+    var el = document.createElement('div');
+    el.className = 'toast ' + (ok ? 'toast-ok' : 'toast-err');
+    el.textContent = msg;
+    wrap.appendChild(el);
+    setTimeout(function () { el.remove(); }, 3800);
+  }
+
+  /* ===================== API (fetch ke Apps Script doPost) ===================== */
+  function callApi(action, payload) {
+    if (!API_URL || API_URL.indexOf('PASTE_URL') !== -1) {
+      return Promise.reject(new Error('API_URL belum diisi. Buka file absen.html dan isi URL deployment Apps Script Anda.'));
+    }
+    return fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // sengaja text/plain agar tidak memicu preflight CORS
+      body: JSON.stringify({ action: action, payload: payload || {} })
+    })
+      .then(function (res) { return res.json(); })
+      .then(function (json) {
+        if (!json.ok) throw new Error(json.error || 'Terjadi kesalahan pada server.');
+        return json.data;
+      });
+  }
+
+  /* ===================== LOGIN ===================== */
+  function login() {
+    var nik = document.getElementById('login-nik').value.trim();
+    var msg = document.getElementById('login-msg');
+    msg.style.display = 'none';
+    if (!nik) { toast('Masukkan NIK terlebih dahulu', false); return; }
+
+    var btn = document.getElementById('btn-login');
+    btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>';
+
+    callApi('cekKaryawan', { nik: nik }).then(function (res) {
+      btn.disabled = false; btn.textContent = 'Masuk';
+      if (!res.found) {
+        msg.className = 'result-box result-bad';
+        msg.style.display = 'block';
+        msg.textContent = 'NIK tidak ditemukan. Hubungi admin untuk pendaftaran.';
+        return;
+      }
+      karyawan = res;
+      referenceDescriptor = res.faceDescriptor ? new Float32Array(res.faceDescriptor) : null;
+      startAbsenPanel();
+    }).catch(function (e) {
+      btn.disabled = false; btn.textContent = 'Masuk';
+      toast('Gagal login: ' + e.message, false);
+    });
+  }
+
+  function logout() {
+    stopEverything();
+    karyawan = null; referenceDescriptor = null;
+    document.getElementById('panel-absen').classList.add('hidden');
+    document.getElementById('panel-login').classList.remove('hidden');
+    document.getElementById('login-nik').value = '';
+    document.getElementById('login-msg').style.display = 'none';
+  }
+
+  function stopEverything() {
+    if (detectTimer) clearInterval(detectTimer);
+    if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+    var video = document.getElementById('video');
+    if (video.srcObject) {
+      video.srcObject.getTracks().forEach(function (t) { t.stop(); });
+      video.srcObject = null;
+    }
+  }
+
+  /* ===================== SETUP PANEL ABSEN ===================== */
+  function startAbsenPanel() {
+    document.getElementById('panel-login').classList.add('hidden');
+    document.getElementById('panel-absen').classList.remove('hidden');
+    document.getElementById('id-nama').textContent = karyawan.nama;
+    document.getElementById('id-jabatan').textContent = karyawan.jabatan;
+    document.getElementById('id-foto').src = karyawan.fotoBase64 || '';
+
+    resetStatusUI();
+    callApi('getSettings').then(function (s) { settings = s; }).catch(function (e) {
+      toast('Gagal memuat pengaturan: ' + e.message, false);
+    });
+
+    initCamera();
+    initGPS();
+  }
+
+  function resetStatusUI() {
+    faceOk = false; gpsOk = false;
+    setBadge('st-wajah', 'Menunggu…', 'neutral');
+    setBadge('st-gps', 'Menunggu…', 'neutral');
+    document.getElementById('btn-datang').disabled = true;
+    document.getElementById('btn-pulang').disabled = true;
+    document.getElementById('absen-result').style.display = 'none';
+  }
+
+  function setBadge(id, text, kind) {
+    var el = document.getElementById(id);
+    el.className = 'badge badge-' + kind;
+    el.textContent = text;
+  }
+
+  /* ===================== KAMERA + FACE-API ===================== */
+  function initCamera() {
+    document.getElementById('cam-loading').style.display = 'flex';
+    document.getElementById('cam-loading').innerHTML = 'Mengaktifkan kamera & model wajah…';
+
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      showCameraError('Browser ini tidak mendukung akses kamera. Buka link absen ini langsung di Chrome/Safari (bukan di dalam aplikasi WhatsApp/Instagram/Telegram).');
+      return;
+    }
+    if (location.protocol !== 'https:') {
+      showCameraError('Halaman harus diakses lewat HTTPS agar kamera bisa dipakai.');
+      return;
+    }
+
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: 480, height: 360 }, audio: false })
+      .then(function (stream) {
+        var video = document.getElementById('video');
+        video.srcObject = stream;
+        return loadModels();
+      })
+      .then(function () {
+        document.getElementById('cam-loading').style.display = 'none';
+        modelsReady = true;
+        detectTimer = setInterval(runDetection, 1200);
+      })
+      .catch(function (err) {
+        var pesan;
+        if (err.name === 'NotAllowedError' || err.message === 'Permission denied') {
+          pesan = 'Izin kamera ditolak. Buka pengaturan situs di browser (ikon 🔒/ⓘ di address bar) → izinkan Kamera, lalu muat ulang halaman. Di HP, pastikan juga izin Kamera untuk aplikasi browser diaktifkan lewat Pengaturan HP → Aplikasi → (nama browser) → Izin.';
+        } else if (err.name === 'NotFoundError') {
+          pesan = 'Kamera tidak ditemukan pada perangkat ini.';
+        } else if (err.name === 'NotReadableError') {
+          pesan = 'Kamera sedang dipakai aplikasi lain. Tutup aplikasi lain yang memakai kamera lalu coba lagi.';
+        } else {
+          pesan = 'Tidak bisa mengakses kamera: ' + (err.message || err.name);
+        }
+        showCameraError(pesan);
+        toast('Kamera tidak dapat diakses.', false);
+      });
+  }
+
+  function showCameraError(pesan) {
+    var box = document.getElementById('cam-loading');
+    box.style.display = 'flex';
+    box.innerHTML = '<div style="text-align:center;padding:0 16px;">' + pesan +
+      '<br><button class="btn btn-accent btn-sm" style="margin-top:12px;" onclick="initCamera()">Coba Lagi</button></div>';
+  }
+
+  function loadModels() {
+    return Promise.all([
+      faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
+      faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
+      faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL)
+    ]);
+  }
+
+  function runDetection() {
+    if (!modelsReady) return;
+    var video = document.getElementById('video');
+    if (video.readyState < 2) return;
+
+    faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions())
+      .withFaceLandmarks()
+      .withFaceDescriptor()
+      .then(function (det) {
+        var canvas = document.getElementById('overlayCanvas');
+        canvas.width = video.clientWidth; canvas.height = video.clientHeight;
+        var ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        if (!det) {
+          faceOk = false;
+          setBadge('st-wajah', 'Wajah tidak terdeteksi', 'bad');
+          updateActionButtons();
+          return;
+        }
+
+        var box = det.detection.box;
+        ctx.strokeStyle = '#ff8a3d'; ctx.lineWidth = 2;
+        var scaleX = canvas.width / video.videoWidth, scaleY = canvas.height / video.videoHeight;
+        var mirroredX = canvas.width - (box.x + box.width) * scaleX;
+        ctx.strokeRect(mirroredX, box.y * scaleY, box.width * scaleX, box.height * scaleY);
+
+        latestDescriptor = det.descriptor;
+        latestFotoBase64 = captureFrameBase64();
+
+        if (!referenceDescriptor) {
+          latestSimilarity = 100;
+          faceOk = true;
+          setBadge('st-wajah', 'Wajah baru — akan disimpan sbg referensi', 'good');
+        } else {
+          var distance = faceapi.euclideanDistance(latestDescriptor, referenceDescriptor);
+          var pct = Math.max(0, Math.min(100, Math.round((1 - distance) * 100)));
+          latestSimilarity = pct;
+          if (pct < 70) {
+            faceOk = false;
+            setBadge('st-wajah', 'Wajah tidak sama (' + pct + '%)', 'bad');
+          } else {
+            faceOk = true;
+            setBadge('st-wajah', 'Kemiripan ' + pct + '%', 'good');
+          }
+        }
+        updateActionButtons();
+      })
+      .catch(function () { /* abaikan error deteksi sesaat */ });
+  }
+
+  function captureFrameBase64() {
+    var video = document.getElementById('video');
+    var c = document.createElement('canvas');
+    var w = 220, h = Math.round(w * video.videoHeight / video.videoWidth);
+    c.width = w; c.height = h;
+    var ctx = c.getContext('2d');
+    ctx.translate(w, 0); ctx.scale(-1, 1);
+    ctx.drawImage(video, 0, 0, w, h);
+    return c.toDataURL('image/jpeg', 0.7);
+  }
+
+  /* ===================== GPS ===================== */
+  function initGPS() {
+    if (!navigator.geolocation) {
+      setBadge('st-gps', 'GPS tidak didukung', 'bad');
+      return;
+    }
+    watchId = navigator.geolocation.watchPosition(function (pos) {
+      latestLat = pos.coords.latitude;
+      latestLng = pos.coords.longitude;
+      evaluateGPS();
+    }, function (err) {
+      gpsOk = false;
+      var pesan = 'Gagal mengambil lokasi';
+      if (err.code === 1) pesan = 'Izin lokasi ditolak — aktifkan izin Lokasi untuk browser ini';
+      else if (err.code === 2) pesan = 'Sinyal GPS tidak tersedia';
+      else if (err.code === 3) pesan = 'Waktu tunggu GPS habis, coba lagi';
+      setBadge('st-gps', pesan, 'bad');
+      updateActionButtons();
+    }, { enableHighAccuracy: true, maximumAge: 4000, timeout: 12000 });
+  }
+
+  function evaluateGPS() {
+    if (!settings || latestLat === null) return;
+    var dist = haversineMeters(latestLat, latestLng, parseFloat(settings.LATITUDE), parseFloat(settings.LONGITUDE));
+    var radius = parseFloat(settings.RADIUS);
+    if (dist <= radius) {
+      gpsOk = true;
+      setBadge('st-gps', 'Kordinat sesuai (' + Math.round(dist) + ' m)', 'good');
+    } else {
+      gpsOk = false;
+      setBadge('st-gps', 'Anda diluar jangkauan (' + Math.round(dist) + ' m)', 'bad');
+    }
+    updateActionButtons();
+  }
+
+  function haversineMeters(lat1, lng1, lat2, lng2) {
+    var R = 6371000;
+    var toRad = function (d) { return d * Math.PI / 180; };
+    var dLat = toRad(lat2 - lat1), dLng = toRad(lng2 - lng1);
+    var a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  }
+
+  /* ===================== TOMBOL AKSI ===================== */
+  function updateActionButtons() {
+    var enabled = faceOk && gpsOk;
+    document.getElementById('btn-datang').disabled = !enabled;
+    document.getElementById('btn-pulang').disabled = !enabled;
+  }
+
+  function submitAbsen(tipe) {
+    if (!faceOk || !gpsOk || !latestDescriptor) { toast('Verifikasi wajah/lokasi belum lengkap', false); return; }
+
+    document.getElementById('btn-datang').disabled = true;
+    document.getElementById('btn-pulang').disabled = true;
+    var resultBox = document.getElementById('absen-result');
+    resultBox.style.display = 'block';
+    resultBox.className = 'result-box';
+    resultBox.innerHTML = '<span class="spinner spinner-dark"></span> Memproses absen…';
+
+    function callProses() {
+      callApi('prosesAbsen', {
+        nik: karyawan.nik,
+        tipe: tipe,
+        lat: latestLat,
+        lng: latestLng,
+        kemiripan: latestSimilarity
+      }).then(function (res) {
+        updateActionButtons();
+        resultBox.className = 'result-box ' + (res.ok ? 'result-ok' : 'result-bad');
+        resultBox.textContent = res.pesan + (res.ok ? ' (' + res.jam + ')' : '');
+        if (res.ok) toast(tipe === 'datang' ? 'Kehadiran anda terekam' : 'Kepulangan anda terekam', true);
+      }).catch(function (e) {
+        updateActionButtons();
+        resultBox.className = 'result-box result-bad';
+        resultBox.textContent = 'Gagal: ' + e.message;
+      });
+    }
+
+    if (!referenceDescriptor) {
+      callApi('simpanFaceData', {
+        nik: karyawan.nik,
+        faceDescriptor: Array.prototype.slice.call(latestDescriptor),
+        fotoBase64: latestFotoBase64
+      }).then(function () {
+        referenceDescriptor = latestDescriptor;
+        callProses();
+      }).catch(function (e) {
+        resultBox.className = 'result-box result-bad';
+        resultBox.textContent = 'Gagal menyimpan data wajah: ' + e.message;
+        updateActionButtons();
+      });
+    } else {
+      callProses();
+    }
+  }
+
+  window.addEventListener('beforeunload', stopEverything);
+</script>
+</body>
+</html>
