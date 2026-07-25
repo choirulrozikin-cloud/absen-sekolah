@@ -378,10 +378,16 @@
         }
 
         var box = det.detection.box;
-        ctx.strokeStyle = '#ff8a3d'; ctx.lineWidth = 2;
+        ctx.strokeStyle = '#ff8a3d'; ctx.lineWidth = 2.5;
         var scaleX = canvas.width / video.videoWidth, scaleY = canvas.height / video.videoHeight;
         var mirroredX = canvas.width - (box.x + box.width) * scaleX;
-        ctx.strokeRect(mirroredX, box.y * scaleY, box.width * scaleX, box.height * scaleY);
+        var boxW = box.width * scaleX, boxH = box.height * scaleY;
+        var cx = mirroredX + boxW / 2, cy = box.y * scaleY + boxH / 2;
+        // Oval, sedikit lebih tinggi dari lebar, supaya mengikuti bentuk wajah (bukan kotak)
+        var rx = boxW / 2, ry = boxH / 2 * 1.2;
+        ctx.beginPath();
+        ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+        ctx.stroke();
 
         latestDescriptor = det.descriptor;
         latestFotoBase64 = captureFrameBase64();
@@ -419,21 +425,37 @@
   }
 
   /* ===================== GPS ===================== */
+  var GPS_AMBANG_AKURAT = 60;   // meter — bacaan dianggap cukup akurat untuk dipakai memutuskan
+  var GPS_BATAS_TUNGGU_MS = 20000; // kalau sampai batas ini belum ada bacaan akurat, pakai yang terbaik yang ada
+  var gpsMulaiWaktu = null;
+
   function initGPS() {
     if (!navigator.geolocation) {
       setBadge('st-gps', 'GPS tidak didukung', 'bad');
       return;
     }
+    gpsMulaiWaktu = Date.now();
+    setBadge('st-gps', 'Mencari sinyal GPS…', 'neutral');
+
     watchId = navigator.geolocation.watchPosition(function (pos) {
       var acc = pos.coords.accuracy;
-      // Abaikan bacaan yang jauh lebih buruk dari bacaan terbaik yang sudah didapat,
-      // supaya tampilan tidak "lompat-lompat" antara titik akurat dan titik meleset.
-      if (latestLat === null || acc <= bestAccuracySoFar + 10) {
+
+      // Simpan bacaan paling akurat yang pernah didapat (angka accuracy terkecil),
+      // supaya kalau tiba-tiba ada bacaan jelek belakangan, tidak menimpa bacaan bagus sebelumnya.
+      if (bestAccuracySoFar === Infinity || acc < bestAccuracySoFar) {
+        bestAccuracySoFar = acc;
         latestLat = pos.coords.latitude;
         latestLng = pos.coords.longitude;
         latestAccuracy = acc;
-        if (acc < bestAccuracySoFar) bestAccuracySoFar = acc;
+      }
+
+      var sudahLewatBatasWaktu = (Date.now() - gpsMulaiWaktu) > GPS_BATAS_TUNGGU_MS;
+
+      if (bestAccuracySoFar <= GPS_AMBANG_AKURAT || sudahLewatBatasWaktu) {
+        // Cukup akurat, atau sudah menunggu cukup lama — pakai bacaan terbaik yang ada.
         evaluateGPS();
+      } else {
+        setBadge('st-gps', 'Mencari sinyal GPS lebih akurat… (±' + Math.round(acc) + 'm)', 'neutral');
       }
     }, function (err) {
       gpsOk = false;
@@ -443,7 +465,7 @@
       else if (err.code === 3) pesan = 'Waktu tunggu GPS habis, coba lagi';
       setBadge('st-gps', pesan, 'bad');
       updateActionButtons();
-    }, { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 });
+    }, { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 });
   }
 
   function evaluateGPS() {
@@ -457,9 +479,17 @@
     var radiusEfektif = radius + toleransi;
     var infoAkurasi = ', akurasi ±' + akurasi + 'm';
 
+    // Indikasi fake GPS/mock location: akurasi "sempurna" (<=3m, jarang terjadi pada GPS asli)
+    // dipadukan jarak yang sangat jauh dari titik absen. Ini bukan deteksi pasti (situs web
+    // memang tidak bisa memastikan lokasi itu palsu atau tidak), hanya peringatan untuk admin.
+    var mencurigakan = akurasi > 0 && akurasi <= 3 && dist > radiusEfektif + 500;
+
     if (dist <= radiusEfektif) {
       gpsOk = true;
       setBadge('st-gps', 'Kordinat sesuai (' + Math.round(dist) + ' m' + infoAkurasi + ')', 'good');
+    } else if (mencurigakan) {
+      gpsOk = false;
+      setBadge('st-gps', '⚠️ Lokasi mencurigakan (kemungkinan GPS palsu) — ' + Math.round(dist) + ' m' + infoAkurasi, 'bad');
     } else {
       gpsOk = false;
       setBadge('st-gps', 'Anda diluar jangkauan (' + Math.round(dist) + ' m' + infoAkurasi + ')', 'bad');
@@ -478,13 +508,16 @@
 
   /* ===================== TOMBOL AKSI ===================== */
   function updateActionButtons() {
-    var enabled = faceOk && gpsOk;
+    // GPS tidak lagi wajib "sesuai radius" untuk bisa absen — cukup ada bacaan lokasi.
+    // Kalau lokasi ternyata tidak sesuai settingan admin, itu tetap dicatat & ditandai
+    // di Laporan (server yang menentukan status lokasi, bukan diblokir di sini).
+    var enabled = faceOk && latestLat !== null;
     document.getElementById('btn-datang').disabled = !enabled;
     document.getElementById('btn-pulang').disabled = !enabled;
   }
 
   function submitAbsen(tipe) {
-    if (!faceOk || !gpsOk || !latestDescriptor) { toast('Verifikasi wajah/lokasi belum lengkap', false); return; }
+    if (!faceOk || latestLat === null || !latestDescriptor) { toast('Verifikasi wajah/lokasi belum lengkap', false); return; }
 
     document.getElementById('btn-datang').disabled = true;
     document.getElementById('btn-pulang').disabled = true;
@@ -503,8 +536,14 @@
       }).then(function (res) {
         updateActionButtons();
         resultBox.className = 'result-box ' + (res.ok ? 'result-ok' : 'result-bad');
-        resultBox.textContent = res.pesan + (res.ok ? ' (' + res.jam + ')' : '');
-        if (res.ok) toast(tipe === 'datang' ? 'Kehadiran anda terekam' : 'Kepulangan anda terekam', true);
+        var teksLokasi = res.lokasi ? ('<br><span style="font-weight:400;font-size:12.5px;">' + res.lokasi + '</span>') : '';
+        resultBox.innerHTML = res.pesan + (res.ok ? ' (' + res.jam + ')' : '') + teksLokasi;
+        if (res.ok) {
+          toast(tipe === 'datang' ? 'Kehadiran anda terekam' : 'Kepulangan anda terekam', true);
+          if (res.lokasi && res.lokasi.indexOf('tidak sesuai') !== -1) {
+            toast('Perhatian: lokasi Anda tercatat tidak sesuai settingan — akan ditinjau admin', false);
+          }
+        }
       }).catch(function (e) {
         updateActionButtons();
         resultBox.className = 'result-box result-bad';
