@@ -189,7 +189,8 @@
   var latestFotoBase64 = null;
   var faceOk = false;
   var gpsOk = false;
-  var latestLat = null, latestLng = null;
+  var latestLat = null, latestLng = null, latestAccuracy = null;
+  var bestAccuracySoFar = Infinity;
   var detectTimer = null;
   var watchId = null;
   var modelsReady = false;
@@ -285,6 +286,7 @@
 
   function resetStatusUI() {
     faceOk = false; gpsOk = false;
+    latestAccuracy = null; bestAccuracySoFar = Infinity;
     setBadge('st-wajah', 'Menunggu…', 'neutral');
     setBadge('st-gps', 'Menunggu…', 'neutral');
     document.getElementById('btn-datang').disabled = true;
@@ -423,9 +425,16 @@
       return;
     }
     watchId = navigator.geolocation.watchPosition(function (pos) {
-      latestLat = pos.coords.latitude;
-      latestLng = pos.coords.longitude;
-      evaluateGPS();
+      var acc = pos.coords.accuracy;
+      // Abaikan bacaan yang jauh lebih buruk dari bacaan terbaik yang sudah didapat,
+      // supaya tampilan tidak "lompat-lompat" antara titik akurat dan titik meleset.
+      if (latestLat === null || acc <= bestAccuracySoFar + 10) {
+        latestLat = pos.coords.latitude;
+        latestLng = pos.coords.longitude;
+        latestAccuracy = acc;
+        if (acc < bestAccuracySoFar) bestAccuracySoFar = acc;
+        evaluateGPS();
+      }
     }, function (err) {
       gpsOk = false;
       var pesan = 'Gagal mengambil lokasi';
@@ -434,19 +443,26 @@
       else if (err.code === 3) pesan = 'Waktu tunggu GPS habis, coba lagi';
       setBadge('st-gps', pesan, 'bad');
       updateActionButtons();
-    }, { enableHighAccuracy: true, maximumAge: 4000, timeout: 12000 });
+    }, { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 });
   }
 
   function evaluateGPS() {
     if (!settings || latestLat === null) return;
     var dist = haversineMeters(latestLat, latestLng, parseFloat(settings.LATITUDE), parseFloat(settings.LONGITUDE));
     var radius = parseFloat(settings.RADIUS);
-    if (dist <= radius) {
+    var akurasi = Math.round(latestAccuracy || 0);
+    // Beri toleransi ekstra sebesar akurasi GPS perangkat (dibatasi maks 40m) supaya
+    // orang yang benar-benar berada di lokasi tidak ditolak gara-gara GPS meleset sedikit.
+    var toleransi = Math.min(latestAccuracy || 0, 40);
+    var radiusEfektif = radius + toleransi;
+    var infoAkurasi = ', akurasi ±' + akurasi + 'm';
+
+    if (dist <= radiusEfektif) {
       gpsOk = true;
-      setBadge('st-gps', 'Kordinat sesuai (' + Math.round(dist) + ' m)', 'good');
+      setBadge('st-gps', 'Kordinat sesuai (' + Math.round(dist) + ' m' + infoAkurasi + ')', 'good');
     } else {
       gpsOk = false;
-      setBadge('st-gps', 'Anda diluar jangkauan (' + Math.round(dist) + ' m)', 'bad');
+      setBadge('st-gps', 'Anda diluar jangkauan (' + Math.round(dist) + ' m' + infoAkurasi + ')', 'bad');
     }
     updateActionButtons();
   }
